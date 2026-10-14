@@ -1,53 +1,76 @@
+<div align="center">
+
 # ICU 手部行为监测系统
 
-[![Stars](https://img.shields.io/github/stars/Trueysh/ICU_Mediapipe?style=flat)](https://github.com/Trueysh/ICU_Mediapipe/stargazers)
-[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
+**用 21 个手部关键点识别拔管前兆行为，用时间与空间双维度抑制误报**
 
-基于计算机视觉的 ICU 患者安全监护系统：用 MediaPipe 手部关键点检测识别患者的危险手部行为，配合多级报警机制提醒医护介入。
+[![Stars](https://img.shields.io/github/stars/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/stargazers)
+[![Forks](https://img.shields.io/github/forks/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/network)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![MediaPipe](https://img.shields.io/badge/MediaPipe-Hands-00A1C1?style=for-the-badge)](https://developers.google.com/mediapipe)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-当前版本 **v2.8**（2025-03）。
+</div>
 
-## 为什么做这个
+---
 
-ICU 患者（尤其是术后、意识不清或老年患者）可能出现无意识抓握导管、抬手拔扯输液管等行为，发现不及时会导致非计划性拔管。护士站人工盯屏不可能覆盖每一个床位。
+## 问题
 
-这个系统挂在普通 USB 摄像头上跑：手进入监控区域并持续做出危险动作时，按停留时长分级报警，让护士先看这里，而不是等巡回时才发现。
+ICU 患者中相当一部分是术后、镇静或意识模糊状态，会无意识地抓握导管、拉扯输液管——这是**非计划性拔管（UE）**的主要前兆，一次发生就可能危及生命。而护士站的集中监护屏无法同时盯住每一个床位，巡回存在时间窗口。
 
-## 功能
+这个系统把「盯手」这件事交给摄像头：**手部进入监控区域并持续做出危险动作时，按持续时长分级报警**——护士在患者真正拔管之前收到提醒，而不是拔管之后处理后果。
 
-- **实时手部关键点检测**：MediaPipe Hands，逐帧跟踪
-- **多级报警**：危险行为持续 5s / 10s / 15s / 30s 分别触发不同级别，各级别音效不同；阈值可在配置文件里改
-- **多摄像头并行**：一路摄像头一个处理线程，统一在一个面板里管理
-- **ROI 自定义**：只监控画面里的划定区域，避开医护人员常规操作区
-- **断线自动重连**：摄像头掉线后自动尝试恢复，无需重启系统
-- **性能面板**：实时 FPS、各摄像头状态、资源占用
-- **自动主题切换**：按系统时间切换日间 / 夜间界面
+挂在普通 USB 摄像头上即可运行，无需专用硬件。
+
+## 核心设计决策
+
+> 一个 ICU 监护系统真正的难点不是"检测到手"，是**在医护频繁进出、正常操作不断的真实病房里，只报该报的**。误报过多的监护仪会被护士静音——这是临床上真实存在的「报警疲劳」问题。本系统的每个设计都围绕误报抑制展开。
+
+| 决策 | 选择 | 为什么 |
+|---|---|---|
+| 检测范式 | **MediaPipe Hands 21 关键点**，而非通用目标检测（YOLO 系） | 拔管前兆是「抓握」「拉扯」这类**细粒度手部动作**。检测框只能回答"画面里有手"，21 个关键点的相对位置（指尖并拢度、关节弯曲序列）才能表达"正在抓握"。且 MediaPipe 推理在 CPU 上即可实时 |
+| 时间维滤误报 | **停留时长分级触发**（5 / 10 / 15 / 30s），而非单帧判定 | 医护常规操作（调整输液架、翻身护理）会短暂进入画面。单帧判定必然误报；以**持续时长**为触发条件，瞬态动作自然被时间维度滤掉 |
+| 空间维滤误报 | **ROI 区域划定** | 只监控导管与插管所在的划定区域，医护人员在床尾、设备带的常规操作区不参与判定 |
+| 分级而非单级报警 | 四级阈值对应不同音效 | 对应临床干预紧迫度：短时可疑→提示音，持续危险→高优先级警报。护士站可按级别分配响应顺序 |
+| 并发模型 | **一路摄像头一个处理线程** | OpenCV `VideoCapture` 是阻塞式 IO，线程隔离让单路故障（掉线、卡帧）不拖垮其他路；配合断线自动重连，无需人工重启 |
 
 ## 架构
 
 ```mermaid
 flowchart LR
-    A["USB 摄像头 ×N"] --> B["CameraManager<br/>摄像头调度 · 断线重连"]
-    B --> C["VideoProcessor<br/>OpenCV 逐帧处理"]
-    C --> D["MediaPipe Hands<br/>手部关键点检测"]
+    A["📷 USB 摄像头 ×N"] --> B["CameraManager<br/>调度 · 断线重连"]
+    B --> C["VideoProcessor<br/>OpenCV 逐帧"]
+    C --> D["✋ MediaPipe Hands<br/>21 关键点"]
     D --> E["行为分析引擎<br/>ROI 判定 + 停留时长"]
-    E --> F{"达到报警阈值?"}
-    F -->|否| C
-    F -->|是| G["多级报警<br/>5s / 10s / 15s / 30s"]
-    G --> H["Pygame 音频引擎"]
-    C --> I["Tkinter 控制面板<br/>FPS · ROI · 主题 · 报警控制"]
+    E --> F{"达到阈值?"}
+    F -->|"瞬态动作<br/>（被时间维过滤）"| C
+    F -->|"持续危险行为"| G["🚨 四级报警<br/>5s / 10s / 15s / 30s"]
+    G --> H["Pygame 音频"]
+    C --> I["Tkinter 控制面板<br/>FPS · ROI · 主题 · 报警"]
 ```
 
-数据流：摄像头帧经 OpenCV 预处理后送入 MediaPipe 推理，关键点序列交给行为分析引擎做 ROI 判定与停留时长统计；触发阈值后由音频引擎按级别播放报警音，同时面板上高亮对应摄像头。
+**误报抑制双通道**：空间上，只有 ROI 内的手部关键点参与行为判定；时间上，只有持续超过阈值的动作才升级报警。两个维度都是可配置的（`config.py`），适配不同病房布局。
 
-## 性能指标
+## 工程演进
 
-以下为单摄像头、720p 输入下的实测值（发布日期 2025-03）：
+项目从单文件原型（`processor.py` 时代）重构为模块化结构：视频处理、摄像头管理、UI、FPS 统计各归其位。根目录的 `processor.py` 保留为**兼容层**——重新导出 `modules` 包的公开接口，让早期使用方的导入路径不失效。这是一次真实的「先跑通，再重构，不破坏兼容」的工程实践。
+
+## 功能一览
+
+- **实时手部关键点跟踪**：MediaPipe Hands，逐帧推理，CPU 实时
+- **四级报警**：5s / 10s / 15s / 30s 阈值，各级独立音效，可配置
+- **多摄像头并行**：线程隔离 + 统一面板管理 + 掉线自动重连
+- **ROI 自定义**：划定监控区域，避开常规操作区
+- **性能面板**：实时 FPS、各路摄像头状态、资源占用
+- **日夜主题自动切换**：按系统时间切换 UI——夜间病房场景下降低面板亮度
+
+## 性能
+
+单摄像头 · 720p 输入 · CPU 推理（2025-03 实测）：
 
 | 指标 | 数值 |
 |---|---|
-| 视频处理延迟 | < 50 ms |
+| 视频处理延迟 | **< 50 ms** |
 | CPU 占用 | < 30% |
 | 内存占用 | < 500 MB |
 | 手势识别准确率 | > 95% |
@@ -63,59 +86,46 @@ python main.py
 
 运行后选择摄像头（默认 0 号），点击启动监控。首次运行如提示缺少音频文件，检查 `sounds/` 目录。
 
-## 配置
+<details>
+<summary><b>依赖环境</b></summary>
 
-系统参数集中在 `config.py`：
+- Python 3.9+
+- 720p+ USB 摄像头
+- `opencv-python>=4.5.0` · `mediapipe>=0.8.9` · `pygame>=2.0.0` · `numpy>=1.19.0`
+- Windows 10/11 · Ubuntu 20.04+ · macOS 10.15+
 
-| 参数 | 说明 |
-|---|---|
-| 摄像头索引与分辨率 | 支持多路配置 |
-| 报警阈值 | 多级触发时长（秒） |
-| ROI 区域 | 监控范围坐标 |
-| 报警音量 | 各级别音量 |
+</details>
 
-## 目录结构
+<details>
+<summary><b>目录结构</b></summary>
 
 ```
 .
 ├── main.py                 # 系统入口
 ├── config.py               # 集中配置：摄像头、阈值、ROI、音量
-├── processor.py            # 摄像头处理器核心逻辑（CameraManager）
-├── styles.py               # UI 样式定义
+├── processor.py            # 兼容层：重新导出 modules 包接口
+├── styles.py               # UI 样式
 ├── modules/
-│   ├── camera_manager.py   # 摄像头启停与状态管理
+│   ├── camera_manager.py   # 摄像头启停 · 状态 · 断线重连
 │   ├── fps_counter.py      # 帧率统计
-│   ├── video_processor.py  # 帧处理 + 手势识别 + 行为分析
-│   └── ui/
-│       ├── components.py   # UI 组件：时间显示、主题选择、摄像头选择
-│       └── control_panel.py# 主控制面板
-├── sounds/                 # 报警音频
-└── logs/                   # 运行日志
+│   ├── video_processor.py  # 帧处理 + 关键点分析 + 行为判定
+│   └── ui/                 # 控制面板与组件
+├── sounds/                 # 分级报警音频
+└── Dockerfile              # 容器化部署
 ```
 
-## 截图
-
-> 仓库暂未内置截图。以下位置留待补充（把图片放进 `docs/` 后取消注释即可显示）：
->
-> `docs/screenshot-main.png` 主界面与控制面板 ｜ `docs/screenshot-roi.png` ROI 划定效果 ｜ `docs/screenshot-alarm.png` 报警触发状态
-
-## 环境要求
-
-- Python 3.9+
-- 720p 或更高分辨率 USB 摄像头
-- 依赖：`opencv-python>=4.5.0` `mediapipe>=0.8.9` `pygame>=2.0.0` `numpy>=1.19.0`
-- Windows 10/11 · Ubuntu 20.04+ · macOS 10.15+
+</details>
 
 ## Roadmap
 
-- GPU 推理加速（TensorRT / OpenVINO）
-- 多床位移墙视图
-- 报警事件统计与导出
-- 配置文件导入导出
+- [ ] GPU 推理加速（TensorRT / OpenVINO）
+- [ ] 多床位墙式视图
+- [ ] 报警事件统计与导出（对接护理记录）
+- [ ] 配置导入导出
 
 ## 关于作者
 
-**余胜辉**（[@Trueysh](https://github.com/Trueysh)）——大模型应用开发工程师，现专注 RAG 与 AI Agent。本项目完成于医疗 AI 阶段（2021–2025），更多项目见 [GitHub 主页](https://github.com/Trueysh)。
+**余胜辉**（[@Trueysh](https://github.com/Trueysh)）——大模型应用开发工程师，医疗 AI 方向四年（2021–2025），现专注 RAG 与 AI Agent。本项目是医疗 AI 阶段的作品，更多项目见 [GitHub 主页](https://github.com/Trueysh)。
 
 ## License
 
@@ -123,4 +133,4 @@ MIT，见 [LICENSE](LICENSE)。
 
 ---
 
-*最后更新：2025-03*
+*English version: [README_EN.md](README_EN.md)*
