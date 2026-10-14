@@ -2,7 +2,7 @@
 
 # ICU 手部行为监测系统
 
-**用 21 个手部关键点识别拔管前兆行为，用时间与空间双维度抑制误报**
+MediaPipe 手部关键点 + 分级报警的患者监护系统，跑在普通 USB 摄像头上
 
 [![Stars](https://img.shields.io/github/stars/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/stargazers)
 [![Forks](https://img.shields.io/github/forks/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/network)
@@ -24,7 +24,7 @@ ICU 患者中相当一部分是术后、镇静或意识模糊状态，会无意�
 
 ## 核心设计决策
 
-> 一个 ICU 监护系统真正的难点不是"检测到手"，是**在医护频繁进出、正常操作不断的真实病房里，只报该报的**。误报过多的监护仪会被护士静音——这是临床上真实存在的「报警疲劳」问题。本系统的每个设计都围绕误报抑制展开。
+> ICU 病房里医护进出频繁，单帧检测必然误报；而误报太多的监护仪会被护士静音（临床上叫「报警疲劳」）。所以这个系统的主要精力花在滤误报上——空间上用 ROI，时间上用停留时长。
 
 | 决策 | 选择 | 为什么 |
 |---|---|---|
@@ -53,7 +53,7 @@ flowchart LR
 
 ## 工程演进
 
-项目从单文件原型（`processor.py` 时代）重构为模块化结构：视频处理、摄像头管理、UI、FPS 统计各归其位。根目录的 `processor.py` 保留为**兼容层**——重新导出 `modules` 包的公开接口，让早期使用方的导入路径不失效。这是一次真实的「先跑通，再重构，不破坏兼容」的工程实践。
+项目最初是单文件原型（`processor.py`），后来重构成模块化结构：视频处理、摄像头管理、UI、FPS 统计各归其位。根目录的 `processor.py` 保留为兼容层，重新导出 `modules` 包的接口——早期使用方的导入路径因此没有失效。
 
 ## 功能一览
 
