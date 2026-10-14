@@ -1,48 +1,79 @@
+<div align="center">
+
 # ICU Hand Behavior Monitoring System
 
-[![Stars](https://img.shields.io/github/stars/Trueysh/ICU_Mediapipe?style=flat)](https://github.com/Trueysh/ICU_Mediapipe/stargazers)
-[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
+**Detecting pre-extubation hand behaviors with 21 hand landmarks — false-positive suppression in both space and time**
 
-A computer-vision safety monitoring system for ICU patients. It uses MediaPipe hand landmark detection to recognize risky hand behaviors (e.g. pulling at lines and tubes) and escalates alarms by dwell time so nurses can react before an unplanned extubation happens.
+[![Stars](https://img.shields.io/github/stars/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/stargazers)
+[![Forks](https://img.shields.io/github/forks/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/network)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![MediaPipe](https://img.shields.io/badge/MediaPipe-Hands-00A1C1?style=for-the-badge)](https://developers.google.com/mediapipe)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-Current version: **v2.8** (2025-03).
+</div>
 
-## Features
+---
 
-- Real-time hand landmark tracking (MediaPipe Hands)
-- Multi-level alarms at 5s / 10s / 15s / 30s dwell thresholds, configurable
-- Multi-camera parallel processing in a single control panel
-- Customizable ROI to exclude staff working zones
-- Auto-reconnect on camera drop
-- Live FPS and resource panel
-- Day / night theme switching by system time
+## The Problem
+
+Patients in ICUs — post-surgery, sedated, or confused — may unconsciously grab and pull at catheters and infusion lines. This is the leading precursor of **unplanned extubation (UE)**, which can be life-threatening. Central monitoring stations cannot watch every bed simultaneously, and nursing rounds leave time windows uncovered.
+
+This system assigns the "watch the hands" job to a camera: **when a hand enters the monitored region and keeps performing risky movements, it escalates alarms by dwell time** — nurses get alerted before the patient actually pulls the tube, not after.
+
+Runs on ordinary USB cameras. No dedicated hardware.
+
+## Key Design Decisions
+
+> The hard part of an ICU monitoring system is not "detect a hand" — it is **only firing alarms that matter** in a real ward where staff constantly walk in and out. Overloaded monitors get muted by nurses (alarm fatigue is a documented clinical problem). Every decision below exists to suppress false positives.
+
+| Decision | Choice | Why |
+|---|---|---|
+| Detection paradigm | **MediaPipe Hands (21 landmarks)**, not generic object detectors | Pre-extubation behaviors are fine-grained actions like *grasping* and *tugging*. A bounding box says "there is a hand"; only landmark geometry (fingertip closure, joint flexion sequences) can express "currently grasping". And MediaPipe runs real-time on CPU |
+| Temporal filtering | **Dwell-time thresholds** (5 / 10 / 15 / 30s), not single-frame judgment | Routine care (adjusting IV stands, turning patients) briefly enters the frame. Single-frame detection must false-alarm; requiring sustained duration filters transients naturally |
+| Spatial filtering | **Configurable ROI** | Only the region around catheters and lines is judged; staff working zones are excluded |
+| Escalated alarms | Four levels with distinct sounds | Maps to clinical urgency: brief suspicion → soft tone; sustained danger → high-priority alert. Nurses can triage response order |
+| Concurrency | **One thread per camera** | OpenCV `VideoCapture` is blocking IO; thread isolation keeps one failing stream (drop, stall) from dragging down the rest, with auto-reconnect |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A["USB cameras xN"] --> B["CameraManager<br/>scheduling + reconnect"]
-    B --> C["VideoProcessor<br/>OpenCV frame loop"]
-    C --> D["MediaPipe Hands<br/>landmark detection"]
-    D --> E["Behavior engine<br/>ROI + dwell time"]
-    E --> F{"Threshold reached?"}
-    F -->|no| C
-    F -->|yes| G["Multi-level alarm<br/>5s / 10s / 15s / 30s"]
-    G --> H["Pygame audio engine"]
-    C --> I["Tkinter panel<br/>FPS / ROI / theme"]
+    A["📷 USB Cameras ×N"] --> B["CameraManager<br/>scheduling · auto-reconnect"]
+    B --> C["VideoProcessor<br/>OpenCV per-frame"]
+    C --> D["✋ MediaPipe Hands<br/>21 landmarks"]
+    D --> E["Behavior Engine<br/>ROI + dwell time"]
+    E --> F{"Threshold met?"}
+    F -->|"transient motion<br/>(filtered by time)"| C
+    F -->|"sustained risk"| G["🚨 4-Level Alarm<br/>5 / 10 / 15 / 30s"]
+    G --> H["Pygame Audio"]
+    C --> I["Tkinter Panel<br/>FPS · ROI · theme · alarms"]
 ```
 
-## Performance (single camera, 720p)
+## Engineering Evolution
+
+The project was refactored from a single-file prototype into a modular package (video processing, camera management, UI, FPS counting). The root `processor.py` is kept as a **compatibility layer** re-exporting the package's public interface, so existing imports never break — a real "make it work, then refactor, without breaking users" practice.
+
+## Features
+
+- Real-time hand landmark tracking (MediaPipe Hands), CPU real-time
+- 4-level alarms at 5 / 10 / 15 / 30s dwell thresholds, all configurable
+- Multi-camera parallel processing with auto-reconnect
+- Customizable ROI excluding staff working zones
+- Live FPS / camera status / resource panel
+- Automatic day/night theme switching (dimmer UI for night wards)
+
+## Performance
+
+Single camera · 720p · CPU inference (measured 2025-03):
 
 | Metric | Value |
 |---|---|
-| Frame latency | < 50 ms |
+| Processing latency | **< 50 ms** |
 | CPU usage | < 30% |
 | Memory | < 500 MB |
-| Gesture accuracy | > 95% |
+| Gesture recognition accuracy | > 95% |
 
-## Quick start
+## Quick Start
 
 ```bash
 git clone https://github.com/Trueysh/ICU_Mediapipe.git
@@ -51,15 +82,23 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## Requirements
+Requires Python 3.9+, a 720p+ USB camera, and `opencv-python` / `mediapipe` / `pygame` / `numpy`. Works on Windows 10/11, Ubuntu 20.04+, macOS 10.15+.
 
-Python 3.9+, 720p+ USB camera. Dependencies: `opencv-python>=4.5.0` `mediapipe>=0.8.9` `pygame>=2.0.0` `numpy>=1.19.0`.
-Windows 10/11 · Ubuntu 20.04+ · macOS 10.15+.
+## Roadmap
+
+- [ ] GPU inference acceleration (TensorRT / OpenVINO)
+- [ ] Multi-bed wall view
+- [ ] Alarm event statistics & export (nursing-record integration)
+- [ ] Config import/export
 
 ## Author
 
-**Yu Shenghui** ([@Trueysh](https://github.com/Trueysh)) — LLM application engineer, currently focused on RAG and AI agents. This project was built during the healthcare-AI phase (2021–2025). See [GitHub profile](https://github.com/Trueysh) for more.
+**Yu Shenghui** ([@Trueysh](https://github.com/Trueysh)) — LLM application engineer, 4 years in medical AI (2021–2025), now focused on RAG and AI Agents. More projects on my [GitHub profile](https://github.com/Trueysh).
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+*中文版：[README.md](README.md)*
