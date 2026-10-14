@@ -2,7 +2,7 @@
 
 # ICU Hand Behavior Monitoring System
 
-**Detecting pre-extubation hand behaviors with 21 hand landmarks — false-positive suppression in both space and time**
+A patient-monitoring system built on MediaPipe hand landmarks and tiered alarms, running on ordinary USB cameras
 
 [![Stars](https://img.shields.io/github/stars/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/stargazers)
 [![Forks](https://img.shields.io/github/forks/Trueysh/ICU_Mediapipe?style=for-the-badge)](https://github.com/Trueysh/ICU_Mediapipe/network)
@@ -24,7 +24,7 @@ Runs on ordinary USB cameras. No dedicated hardware.
 
 ## Key Design Decisions
 
-> The hard part of an ICU monitoring system is not "detect a hand" — it is **only firing alarms that matter** in a real ward where staff constantly walk in and out. Overloaded monitors get muted by nurses (alarm fatigue is a documented clinical problem). Every decision below exists to suppress false positives.
+> In a real ICU ward, staff walk in and out constantly, so single-frame detection inevitably false-alarms — and monitors that cry wolf get muted by nurses (a documented clinical problem called *alarm fatigue*). Most of the design effort here therefore goes into filtering false positives: spatially via ROI, temporally via dwell time.
 
 | Decision | Choice | Why |
 |---|---|---|
@@ -51,7 +51,7 @@ flowchart LR
 
 ## Engineering Evolution
 
-The project was refactored from a single-file prototype into a modular package (video processing, camera management, UI, FPS counting). The root `processor.py` is kept as a **compatibility layer** re-exporting the package's public interface, so existing imports never break — a real "make it work, then refactor, without breaking users" practice.
+The project started as a single-file prototype (`processor.py`) and was later refactored into a modular package — video processing, camera management, UI, and FPS counting each in their own module. The root `processor.py` remains as a compatibility layer re-exporting the package's interface, so existing imports kept working.
 
 ## Features
 
